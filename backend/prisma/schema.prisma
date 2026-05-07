@@ -1,0 +1,890 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  PARTNER
+  MANAGER
+  ARTICLE_ASSISTANT
+  ACCOUNTANT
+  CLIENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  PROSPECT
+  ARCHIVED
+}
+
+enum BusinessType {
+  INDIVIDUAL
+  PROPRIETORSHIP
+  PARTNERSHIP
+  LLP
+  PRIVATE_LIMITED
+  PUBLIC_LIMITED
+  HUF
+  TRUST
+  SOCIETY
+  GOVERNMENT
+  OTHER
+}
+
+enum ConstitutionType {
+  INDIVIDUAL
+  HUF
+  FIRM
+  COMPANY
+  AOP
+  BOI
+  TRUST
+  GOVERNMENT
+  LOCAL_AUTHORITY
+  OTHER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskCategory {
+  GST
+  INCOME_TAX
+  AUDIT
+  ROC
+  INTERNAL
+  FOLLOW_UP
+  TDS
+  PAYROLL
+  OTHER
+}
+
+enum ComplianceType {
+  GSTR1
+  GSTR3B
+  GSTR9
+  GSTR9C
+  CMP08
+  ITR
+  TDS_24Q
+  TDS_26Q
+  TDS_27EQ
+  FORM_3CD
+  FORM_3CEB
+  MCA_AOC4
+  MCA_MGT7
+  EPFO
+  ESI
+  PT
+  OTHER
+}
+
+enum FilingStatus {
+  NOT_DUE
+  PENDING
+  IN_PROGRESS
+  FILED
+  OVERDUE
+  NOT_APPLICABLE
+  ERROR
+}
+
+enum NoticeType {
+  GST_NOTICE
+  IT_NOTICE
+  DEMAND_NOTICE
+  SCRUTINY_NOTICE
+  DRC_NOTICE
+  ASMT_NOTICE
+  SHOW_CAUSE
+  MCA_NOTICE
+  OTHER
+}
+
+enum NoticeStatus {
+  OPEN
+  IN_PROGRESS
+  REPLIED
+  RESOLVED
+  ESCALATED
+  CLOSED
+}
+
+enum NoticeRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DocumentType {
+  GST_RETURN
+  IT_RETURN
+  AUDIT_REPORT
+  NOTICE
+  FINANCIAL
+  AGREEMENT
+  IDENTITY_PROOF
+  ADDRESS_PROOF
+  BANK_STATEMENT
+  INVOICE
+  OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+  UPI
+  CARD
+  OTHER
+}
+
+enum AutomationStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AutomationType {
+  FETCH_NOTICES
+  FETCH_FILING_STATUS
+  DOWNLOAD_ACKNOWLEDGEMENT
+  DOWNLOAD_NOTICE
+  CHECK_DASHBOARD
+  FETCH_LEDGER
+  DOWNLOAD_ORDERS
+}
+
+enum Portal {
+  GST_PORTAL
+  INCOME_TAX
+  TRACES
+  MCA
+  EPFO
+  ESI
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+// ─── Core Models ─────────────────────────────────────────────────────────────
+
+model Organisation {
+  id          String   @id @default(cuid())
+  name        String
+  gstin       String?
+  pan         String?
+  email       String   @unique
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  pincode     String?
+  logo        String?
+  timezone    String   @default("Asia/Kolkata")
+  settings    Json     @default("{}")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  clients     Client[]
+  teams       Team[]
+
+  @@map("organisations")
+}
+
+model User {
+  id               String     @id @default(cuid())
+  organisationId   String
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  email            String     @unique
+  password         String
+  firstName        String
+  lastName         String
+  phone            String?
+  avatar           String?
+  role             UserRole   @default(ACCOUNTANT)
+  status           UserStatus @default(ACTIVE)
+  isEmailVerified  Boolean    @default(false)
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean    @default(false)
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
+  passwordChangedAt DateTime?
+  failedLoginCount Int        @default(0)
+  lockedUntil      DateTime?
+  permissions      String[]   @default([])
+  preferences      Json       @default("{}")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  managedClients   Client[]   @relation("ClientManager")
+  assignedTasks    Task[]     @relation("TaskAssignee")
+  createdTasks     Task[]     @relation("TaskCreator")
+  activityLogs     ActivityLog[]
+  notifications    Notification[]
+  teamMembers      TeamMember[]
+  timesheets       Timesheet[]
+  sessions         UserSession[]
+  otpRequests      OtpRequest[]
+
+  @@index([organisationId])
+  @@index([email])
+  @@map("users")
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model OtpRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otp       String
+  purpose   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("otp_requests")
+}
+
+// ─── Client Models ───────────────────────────────────────────────────────────
+
+model Client {
+  id               String          @id @default(cuid())
+  organisationId   String
+  organisation     Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  clientCode       String?         @unique
+  name             String
+  pan              String?
+  gstin            String?
+  tan              String?
+  aadhaar          String?
+  businessType     BusinessType    @default(INDIVIDUAL)
+  constitutionType ConstitutionType @default(INDIVIDUAL)
+  status           ClientStatus    @default(ACTIVE)
+  email            String?
+  phone            String?
+  alternatePhone   String?
+  address          String?
+  city             String?
+  state            String?
+  pincode          String?
+  country          String          @default("India")
+  assignedManagerId String?
+  assignedManager  User?           @relation("ClientManager", fields: [assignedManagerId], references: [id])
+  complianceApplicability String[] @default([])
+  tags             String[]        @default([])
+  notes            String?
+  onboardingDate   DateTime?
+  incorporationDate DateTime?
+  financialYearEnd String          @default("March")
+  isActive         Boolean         @default(true)
+  metadata         Json            @default("{}")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  contacts         ClientContact[]
+  tasks            Task[]
+  complianceRecords ComplianceRecord[]
+  filings          Filing[]
+  notices          Notice[]
+  documents        Document[]
+  invoices         Invoice[]
+  credentials      Credential[]
+  activityLogs     ActivityLog[]
+  automationJobs   AutomationJob[]
+
+  @@index([organisationId])
+  @@index([pan])
+  @@index([gstin])
+  @@index([assignedManagerId])
+  @@map("clients")
+}
+
+model ClientContact {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name        String
+  designation String?
+  email       String?
+  phone       String?
+  isOtpContact Boolean @default(false)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("client_contacts")
+}
+
+// ─── Task Models ─────────────────────────────────────────────────────────────
+
+model Task {
+  id               String       @id @default(cuid())
+  organisationId   String
+  title            String
+  description      String?
+  category         TaskCategory @default(INTERNAL)
+  status           TaskStatus   @default(TODO)
+  priority         TaskPriority @default(MEDIUM)
+  clientId         String?
+  client           Client?      @relation(fields: [clientId], references: [id])
+  assigneeId       String?
+  assignee         User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creatorId        String
+  creator          User         @relation("TaskCreator", fields: [creatorId], references: [id])
+  dueDate          DateTime?
+  reminderDate     DateTime?
+  completedAt      DateTime?
+  estimatedHours   Float?
+  actualHours      Float?
+  isRecurring      Boolean      @default(false)
+  recurrenceRule   String?
+  parentTaskId     String?
+  parentTask       Task?        @relation("SubTasks", fields: [parentTaskId], references: [id])
+  subTasks         Task[]       @relation("SubTasks")
+  tags             String[]     @default([])
+  attachments      String[]     @default([])
+  slaDeadline      DateTime?
+  slaBreached      Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  checklist        TaskChecklist[]
+  comments         TaskComment[]
+
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskChecklist {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  text      String
+  isDone    Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@map("task_checklists")
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+// ─── Compliance Models ───────────────────────────────────────────────────────
+
+model ComplianceRecord {
+  id             String         @id @default(cuid())
+  clientId       String
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  complianceType ComplianceType
+  period         String
+  periodYear     Int
+  periodMonth    Int?
+  periodQuarter  Int?
+  dueDate        DateTime
+  filingDate     DateTime?
+  status         FilingStatus   @default(PENDING)
+  arn            String?
+  acknowledgement String?
+  remarks        String?
+  assigneeId     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([clientId, complianceType, period])
+  @@index([clientId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("compliance_records")
+}
+
+model Filing {
+  id            String       @id @default(cuid())
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  filingType    String
+  period        String
+  status        FilingStatus @default(PENDING)
+  filedBy       String?
+  filedAt       DateTime?
+  arn           String?
+  portal        Portal?
+  documentUrl   String?
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([clientId])
+  @@map("filings")
+}
+
+// ─── Notice Models ───────────────────────────────────────────────────────────
+
+model Notice {
+  id              String          @id @default(cuid())
+  clientId        String
+  client          Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  noticeType      NoticeType
+  portal          Portal
+  noticeNumber    String?
+  subject         String
+  description     String?
+  issueDate       DateTime?
+  responseDeadline DateTime?
+  status          NoticeStatus    @default(OPEN)
+  riskLevel       NoticeRiskLevel @default(MEDIUM)
+  aiSummary       String?
+  aiPriority      String?
+  isAutoFetched   Boolean         @default(false)
+  attachments     String[]        @default([])
+  tags            String[]        @default([])
+  assigneeId      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  replies         NoticeReply[]
+  hearings        NoticeHearing[]
+  tasks           NoticeTask[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([riskLevel])
+  @@map("notices")
+}
+
+model NoticeReply {
+  id          String   @id @default(cuid())
+  noticeId    String
+  notice      Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  content     String
+  attachments String[] @default([])
+  submittedBy String?
+  submittedAt DateTime?
+  ackNumber   String?
+  createdAt   DateTime @default(now())
+
+  @@index([noticeId])
+  @@map("notice_replies")
+}
+
+model NoticeHearing {
+  id          String   @id @default(cuid())
+  noticeId    String
+  notice      Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  hearingDate DateTime
+  venue       String?
+  notes       String?
+  outcome     String?
+  createdAt   DateTime @default(now())
+
+  @@index([noticeId])
+  @@map("notice_hearings")
+}
+
+model NoticeTask {
+  id        String @id @default(cuid())
+  noticeId  String
+  notice    Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  taskId    String
+
+  @@unique([noticeId, taskId])
+  @@map("notice_tasks")
+}
+
+// ─── Document Models ─────────────────────────────────────────────────────────
+
+model Document {
+  id           String       @id @default(cuid())
+  clientId     String
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name         String
+  originalName String
+  documentType DocumentType @default(OTHER)
+  folder       String       @default("/")
+  storageKey   String
+  storageUrl   String?
+  mimeType     String
+  fileSize     BigInt
+  checksum     String?
+  isOcrProcessed Boolean   @default(false)
+  ocrText      String?
+  tags         String[]     @default([])
+  uploadedById String?
+  isShared     Boolean      @default(false)
+  shareToken   String?      @unique
+  shareExpiry  DateTime?
+  version      Int          @default(1)
+  parentId     String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  versions     DocumentVersion[]
+
+  @@index([clientId])
+  @@index([documentType])
+  @@index([folder])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id          String   @id @default(cuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version     Int
+  storageKey  String
+  fileSize    BigInt
+  uploadedById String?
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+// ─── Billing Models ──────────────────────────────────────────────────────────
+
+model Invoice {
+  id              String        @id @default(cuid())
+  organisationId  String
+  invoiceNumber   String        @unique
+  clientId        String
+  client          Client        @relation(fields: [clientId], references: [id])
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime      @default(now())
+  dueDate         DateTime?
+  subTotal        Decimal       @db.Decimal(12, 2)
+  discount        Decimal       @default(0) @db.Decimal(12, 2)
+  taxAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  paidAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  currency        String        @default("INR")
+  notes           String?
+  terms           String?
+  isRecurring     Boolean       @default(false)
+  recurrenceRule  String?
+  gstDetails      Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  lineItems       InvoiceLineItem[]
+  payments        Payment[]
+
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal  @db.Decimal(10, 3)
+  rate        Decimal  @db.Decimal(12, 2)
+  amount      Decimal  @db.Decimal(12, 2)
+  taxRate     Decimal  @default(0) @db.Decimal(5, 2)
+  hsn         String?
+  order       Int      @default(0)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  amount        Decimal       @db.Decimal(12, 2)
+  paymentDate   DateTime
+  paymentMethod PaymentMethod @default(BANK_TRANSFER)
+  reference     String?
+  notes         String?
+  receiptUrl    String?
+  createdAt     DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  organisationId String
+  clientId      String?
+  category      String
+  description   String
+  amount        Decimal  @db.Decimal(12, 2)
+  expenseDate   DateTime
+  receiptUrl    String?
+  isReimbursable Boolean @default(false)
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([organisationId])
+  @@map("expenses")
+}
+
+// ─── Credential Models ───────────────────────────────────────────────────────
+
+model Credential {
+  id               String   @id @default(cuid())
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  portal           Portal
+  usernameEncrypted String
+  passwordEncrypted String
+  registeredMobileEncrypted String?
+  registeredEmailEncrypted  String?
+  otpContactPerson String?
+  notes            String?
+  lastUsedAt       DateTime?
+  lastVerifiedAt   DateTime?
+  isActive         Boolean  @default(true)
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  accessLogs       CredentialLog[]
+
+  @@unique([clientId, portal])
+  @@index([clientId])
+  @@map("credentials")
+}
+
+model CredentialLog {
+  id           String     @id @default(cuid())
+  credentialId String
+  credential   Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  accessedById String
+  action       String
+  ipAddress    String?
+  userAgent    String?
+  success      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@index([credentialId])
+  @@map("credential_logs")
+}
+
+// ─── Automation Models ───────────────────────────────────────────────────────
+
+model AutomationJob {
+  id              String           @id @default(cuid())
+  clientId        String?
+  client          Client?          @relation(fields: [clientId], references: [id])
+  portal          Portal
+  automationType  AutomationType
+  status          AutomationStatus @default(PENDING)
+  scheduledAt     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  retryCount      Int              @default(0)
+  maxRetries      Int              @default(3)
+  error           String?
+  result          Json?
+  triggeredById   String?
+  bullJobId       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  portalSessions  PortalSession[]
+
+  @@index([clientId])
+  @@index([status])
+  @@map("automation_jobs")
+}
+
+model PortalSession {
+  id             String        @id @default(cuid())
+  automationJobId String?
+  automationJob  AutomationJob? @relation(fields: [automationJobId], references: [id])
+  portal         Portal
+  sessionData    String?
+  cookiesData    String?
+  isActive       Boolean       @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([automationJobId])
+  @@map("portal_sessions")
+}
+
+// ─── Team Models ─────────────────────────────────────────────────────────────
+
+model Team {
+  id             String   @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  members        TeamMember[]
+
+  @@index([organisationId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("member")
+  joinedAt  DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+model Timesheet {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId    String?
+  taskId      String?
+  date        DateTime @db.Date
+  hoursWorked Decimal  @db.Decimal(5, 2)
+  description String?
+  isApproved  Boolean  @default(false)
+  approvedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@map("timesheets")
+}
+
+// ─── Activity & Notification Models ─────────────────────────────────────────
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  organisationId String?
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  clientId     String?
+  client       Client?  @relation(fields: [clientId], references: [id])
+  action       String
+  entity       String
+  entityId     String?
+  description  String?
+  metadata     Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     NotificationChannel
+  status      NotificationStatus  @default(PENDING)
+  title       String
+  body        String
+  data        Json?
+  readAt      DateTime?
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime            @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@map("notifications")
+}
