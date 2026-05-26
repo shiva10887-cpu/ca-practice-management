@@ -178,6 +178,13 @@ export async function importClients(req: AuthRequest, res: Response) {
     const row = rows[i];
     try {
       const pan = (row['PAN'] || row['pan'] || '').toString().toUpperCase().trim() || undefined;
+
+      const VALID_SERVICES = new Set(['GST', 'INCOME_TAX', 'MCA', 'TDS', 'AUDIT', 'ACCOUNTING', 'PAYROLL', 'OTHER']);
+      const rawServices = (row['Services'] || row['services'] || '').toString().trim();
+      const complianceApplicability = rawServices
+        ? rawServices.split(',').map((s) => s.trim().toUpperCase()).filter((s) => VALID_SERVICES.has(s))
+        : undefined;
+
       const data = {
         legalName: (row['Legal Name'] || row['legalName'] || '').toString().trim(),
         tradeName: (row['Trade Name'] || row['tradeName'] || '').toString().trim() || undefined,
@@ -193,6 +200,7 @@ export async function importClients(req: AuthRequest, res: Response) {
         state: (row['State'] || row['state'] || '').toString().trim() || undefined,
         pincode: (row['Pincode'] || row['pincode'] || '').toString().trim() || undefined,
         notes: (row['Notes'] || row['notes'] || '').toString().trim() || undefined,
+        ...(complianceApplicability !== undefined ? { complianceApplicability } : {}),
       };
 
       const gstUserId = (row['GST USER ID'] || row['GST User ID'] || '').toString().trim();
@@ -273,13 +281,26 @@ export async function downloadImportTemplate(_req: AuthRequest, res: Response) {
     const headers = [
       'Legal Name', 'Trade Name', 'PAN', 'GSTIN', 'TAN', 'Business Type', 'Constitution Type',
       'Email', 'Phone', 'Address', 'City', 'State', 'Pincode', 'Notes',
+      'Services',
       'GST USER ID', 'GST Password', 'Income tax Login password',
     ];
 
-    const ws = XLSX.utils.aoa_to_sheet([
-      headers,
-      ['Ramesh Kumar', 'Ramesh Enterprises', 'AABCP1234C', '29AABCP1234C1Z5', 'DELR12345C', 'INDIVIDUAL', 'INDIVIDUAL', 'ramesh@example.com', '9876543210', '123 Main St', 'Bengaluru', 'Karnataka', '560001', '', 'ramesh_gst', 'gst@pass1', 'it@pass1'],
-    ]);
+    // Services column note row
+    const noteRow = [
+      '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+      'Comma-separated: GST, INCOME_TAX, MCA, TDS, AUDIT, ACCOUNTING, PAYROLL, OTHER',
+      '', '', '',
+    ];
+
+    const sampleRow = [
+      'Ramesh Kumar', 'Ramesh Enterprises', 'AABCP1234C', '29AABCP1234C1Z5', 'DELR12345C',
+      'INDIVIDUAL', 'INDIVIDUAL', 'ramesh@example.com', '9876543210', '123 Main St',
+      'Bengaluru', 'Karnataka', '560001', '',
+      'GST,INCOME_TAX,TDS',
+      'ramesh_gst', 'gst@pass1', 'it@pass1',
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, noteRow, sampleRow]);
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Clients');
