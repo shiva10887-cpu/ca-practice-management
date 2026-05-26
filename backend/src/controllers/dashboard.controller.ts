@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma, TaskCategory } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import * as R from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
@@ -101,6 +102,50 @@ export async function getActivityTimeline(req: AuthRequest, res: Response) {
   });
 
   return R.ok(res, logs);
+}
+
+export async function getTaskDashboardStats(req: AuthRequest, res: Response) {
+  const orgId = req.user!.orgId;
+  const { category } = req.query as Record<string, string>;
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+  const dayAfterTomorrow = new Date(tomorrowStart.getTime() + 86400000);
+  const in7Days = new Date(todayStart.getTime() + 7 * 86400000);
+  const in30Days = new Date(todayStart.getTime() + 30 * 86400000);
+  const minus7Days = new Date(todayStart.getTime() - 7 * 86400000);
+  const minus30Days = new Date(todayStart.getTime() - 30 * 86400000);
+
+  const base: Prisma.TaskWhereInput = {
+    organisationId: orgId,
+    parentTaskId: null,
+    ...(category && category !== 'ALL' ? { category: category as TaskCategory } : {}),
+  };
+  const pending: Prisma.TaskWhereInput = { status: { in: ['TODO', 'IN_PROGRESS', 'REVIEW'] } };
+
+  const [
+    dueToday, dueTomorrow, dueIn7Days, dueAfter7Days, dueIn30Days,
+    overdueAfter30Days, overdueUpTo7Days, overdueMoreThan7Days, totalOverdue,
+    tasksByStatus,
+  ] = await Promise.all([
+    prisma.task.count({ where: { ...base, ...pending, dueDate: { gte: todayStart, lt: tomorrowStart } } }),
+    prisma.task.count({ where: { ...base, ...pending, dueDate: { gte: tomorrowStart, lt: dayAfterTomorrow } } }),
+    prisma.task.count({ where: { ...base, ...pending, dueDate: { gte: dayAfterTomorrow, lt: in7Days } } }),
+    prisma.task.count({ where: { ...base, ...pending, dueDate: { gte: in7Days } } }),
+    prisma.task.count({ where: { ...base, ...pending, dueDate: { gte: todayStart, lt: in30Days } } }),
+    prisma.task.count({ where: { ...base, status: 'OVERDUE', dueDate: { lt: minus30Days } } }),
+    prisma.task.count({ where: { ...base, status: 'OVERDUE', dueDate: { gte: minus7Days, lt: todayStart } } }),
+    prisma.task.count({ where: { ...base, status: 'OVERDUE', dueDate: { gte: minus30Days, lt: minus7Days } } }),
+    prisma.task.count({ where: { ...base, status: 'OVERDUE' } }),
+    prisma.task.groupBy({ by: ['status'], where: base, _count: { id: true } }),
+  ]);
+
+  return R.ok(res, {
+    dueToday, dueTomorrow, dueIn7Days, dueAfter7Days, dueIn30Days,
+    overdueAfter30Days, overdueUpTo7Days, overdueMoreThan7Days, totalOverdue,
+    tasksByStatus: tasksByStatus.map((s) => ({ status: s.status, count: s._count.id })),
+  });
 }
 
 export async function getFilingAnalytics(req: AuthRequest, res: Response) {

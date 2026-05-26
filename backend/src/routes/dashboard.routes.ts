@@ -6,6 +6,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/stats', ctrl.getDashboardStats);
+router.get('/task-stats', ctrl.getTaskDashboardStats);
 router.get('/due-dates', ctrl.getUpcomingDueDates);
 router.get('/activity', ctrl.getActivityTimeline);
 router.get('/filing-analytics', ctrl.getFilingAnalytics);

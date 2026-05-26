@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 export async function listClients(req: AuthRequest, res: Response) {
   const {
     page = '1', limit = '20', search = '', status, businessType,
-    assignedManagerId, tags,
+    assignedManagerId, tags, complianceApplicability,
   } = req.query as Record<string, string>;
 
   const skip = (Number(page) - 1) * Number(limit);
@@ -30,6 +30,7 @@ export async function listClients(req: AuthRequest, res: Response) {
       ],
     }),
     ...(tags && { tags: { hasSome: tags.split(',') } }),
+    ...(complianceApplicability && { complianceApplicability: { has: complianceApplicability } }),
   };
 
   const [clients, total] = await Promise.all([

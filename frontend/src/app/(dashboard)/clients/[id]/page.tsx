@@ -1,19 +1,66 @@
 'use client';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import api from '@/lib/api';
 import { formatDate, cn, STATUS_COLORS } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Building2, Mail, Phone, MapPin, FileCheck, AlertCircle, CheckSquare, FolderOpen, Receipt, KeyRound } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Mail, Phone, MapPin, FileCheck, AlertCircle, CheckSquare, FolderOpen, Receipt, KeyRound, Pencil, Check, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CredentialsTab } from '@/components/clients/CredentialsTab';
+import { useToast } from '@/hooks/use-toast';
+
+const SERVICES = [
+  { label: 'GST',        value: 'GST',        color: 'bg-green-100 text-green-700 border-green-300' },
+  { label: 'Income Tax', value: 'INCOME_TAX', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { label: 'MCA / ROC',  value: 'MCA',        color: 'bg-purple-100 text-purple-700 border-purple-300' },
+  { label: 'TDS',        value: 'TDS',        color: 'bg-orange-100 text-orange-700 border-orange-300' },
+  { label: 'Audit',      value: 'AUDIT',      color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+  { label: 'Accounting', value: 'ACCOUNTING', color: 'bg-teal-100 text-teal-700 border-teal-300' },
+  { label: 'Payroll',    value: 'PAYROLL',    color: 'bg-rose-100 text-rose-700 border-rose-300' },
+  { label: 'Other',      value: 'OTHER',      color: 'bg-gray-100 text-gray-600 border-gray-300' },
+];
+const SERVICE_MAP = Object.fromEntries(SERVICES.map((s) => [s.value, s]));
+
+function ServiceBadge({ value }: { value: string }) {
+  const svc = SERVICE_MAP[value];
+  if (!svc) return null;
+  return (
+    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', svc.color)}>
+      {svc.label}
+    </span>
+  );
+}
 
 export default function ClientProfilePage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const defaultTab = searchParams.get('tab') ?? 'overview';
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [editingServices, setEditingServices] = useState(false);
+  const [draftServices, setDraftServices] = useState<string[]>([]);
+
+  const startEdit = (current: string[]) => {
+    setDraftServices([...(current ?? [])]);
+    setEditingServices(true);
+  };
+  const cancelEdit = () => setEditingServices(false);
+  const toggleService = (val: string) =>
+    setDraftServices((prev) => prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val]);
+
+  const saveServicesMutation = useMutation({
+    mutationFn: (services: string[]) =>
+      api.patch(`/clients/${id}`, { complianceApplicability: services }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client', id] });
+      setEditingServices(false);
+      toast({ title: 'Services updated' });
+    },
+    onError: () => toast({ title: 'Failed to update services', variant: 'destructive' }),
+  });
 
   const { data: client, isLoading } = useQuery({
     queryKey: ['client', id],
@@ -59,6 +106,13 @@ export default function ClientProfilePage() {
               <span className="text-xs bg-muted px-2 py-0.5 rounded-full">Trade: {client.tradeName}</span>
             )}
           </div>
+          {client.complianceApplicability?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {client.complianceApplicability.map((s: string) => (
+                <ServiceBadge key={s} value={s} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -92,6 +146,79 @@ export default function ClientProfilePage() {
 
         <TabsContent value="overview" className="mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Services Card */}
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Services</CardTitle>
+                  {!editingServices ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      onClick={() => startEdit(client.complianceApplicability ?? [])}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" /> Edit
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs"
+                        disabled={saveServicesMutation.isPending}
+                        onClick={() => saveServicesMutation.mutate(draftServices)}
+                      >
+                        <Check className="h-3 w-3 mr-1" />
+                        {saveServicesMutation.isPending ? 'Saving…' : 'Save'}
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={cancelEdit}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {editingServices ? (
+                  <div className="flex flex-wrap gap-2">
+                    {SERVICES.map((svc) => {
+                      const active = draftServices.includes(svc.value);
+                      return (
+                        <button
+                          key={svc.value}
+                          type="button"
+                          onClick={() => toggleService(svc.value)}
+                          className={cn(
+                            'rounded-full border px-4 py-1.5 text-sm font-medium transition-all',
+                            active
+                              ? cn(svc.color, 'ring-2 ring-offset-1 ring-current')
+                              : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400'
+                          )}
+                        >
+                          {svc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : client.complianceApplicability?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {client.complianceApplicability.map((s: string) => (
+                      <ServiceBadge key={s} value={s} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No services marked.{' '}
+                    <button
+                      className="text-primary underline underline-offset-2"
+                      onClick={() => startEdit([])}
+                    >
+                      Add services
+                    </button>
+                  </p>
+                )}
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader><CardTitle className="text-sm">Contact Information</CardTitle></CardHeader>
               <CardContent className="space-y-3 text-sm">

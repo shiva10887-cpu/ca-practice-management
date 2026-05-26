@@ -1,262 +1,300 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useRef } from 'react';
 import api from '@/lib/api';
-import { formatCurrency, formatDate, cn, STATUS_COLORS } from '@/lib/utils';
-import {
-  Users, FileCheck, AlertCircle, Receipt, Zap, TrendingUp,
-  Clock, CheckSquare, ArrowUpRight, ArrowDownRight, Shield,
-} from 'lucide-react';
-import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { Filter } from 'lucide-react';
+import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+const CATEGORIES = [
+  { label: 'All', value: 'ALL' },
+  { label: 'GST', value: 'GST' },
+  { label: 'Income Tax', value: 'INCOME_TAX' },
+  { label: 'ROC', value: 'ROC' },
+  { label: 'Audit', value: 'AUDIT' },
+  { label: 'TDS', value: 'TDS' },
+  { label: 'Payroll', value: 'PAYROLL' },
+  { label: 'Other', value: 'OTHER' },
+];
 
-function StatCard({
-  title, value, subtitle, icon: Icon, trend, color = 'blue',
-}: {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-  icon: React.ElementType;
-  trend?: { value: number; label: string };
-  color?: string;
-}) {
-  const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400',
-    green: 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400',
-    yellow: 'bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400',
-    red: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
-    purple: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
-  };
+const TABS = ['Tasks', 'Todo', 'Live Time Tracking'];
 
+const STATUS_LABELS: Record<string, string> = {
+  TODO: 'To Do',
+  IN_PROGRESS: 'In Progress',
+  REVIEW: 'In Review',
+  COMPLETED: 'Completed',
+  OVERDUE: 'Overdue',
+  CANCELLED: 'Cancelled',
+};
+
+const STATUS_ROW_COLORS: Record<string, string> = {
+  TODO: 'text-gray-700',
+  IN_PROGRESS: 'text-blue-700',
+  REVIEW: 'text-purple-700',
+  COMPLETED: 'text-green-700',
+  OVERDUE: 'text-red-600',
+  CANCELLED: 'text-gray-400',
+};
+
+interface StatCardProps {
+  label: string;
+  value: number;
+  bgClass: string;
+  labelClass: string;
+  numClass: string;
+  borderClass: string;
+}
+
+function StatCard({ label, value, bgClass, labelClass, numClass, borderClass }: StatCardProps) {
   return (
-    <div className="kpi-card">
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold">{value}</p>
-          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-        </div>
-        <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', colorMap[color])}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-      {trend && (
-        <div className="mt-3 flex items-center gap-1 text-xs">
-          {trend.value >= 0
-            ? <ArrowUpRight className="h-3 w-3 text-green-500" />
-            : <ArrowDownRight className="h-3 w-3 text-red-500" />}
-          <span className={trend.value >= 0 ? 'text-green-600' : 'text-red-600'}>
-            {Math.abs(trend.value)}%
-          </span>
-          <span className="text-muted-foreground">{trend.label}</span>
-        </div>
-      )}
+    <div className={cn('rounded-2xl p-4 flex flex-col shadow-sm border', bgClass, borderClass)}>
+      <span className={cn('text-sm font-medium leading-tight', labelClass)}>{label}</span>
+      <span className={cn('text-4xl font-bold mt-3', numClass)}>{value}</span>
     </div>
   );
 }
 
+interface TaskStat {
+  dueToday: number;
+  dueTomorrow: number;
+  dueIn7Days: number;
+  dueAfter7Days: number;
+  dueIn30Days: number;
+  overdueAfter30Days: number;
+  overdueUpTo7Days: number;
+  overdueMoreThan7Days: number;
+  totalOverdue: number;
+  tasksByStatus: { status: string; count: number }[];
+}
+
 export default function DashboardPage() {
-  const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboard-stats'],
-    queryFn: () => api.get('/dashboard/stats').then((r) => r.data.data),
+  const [activeTab, setActiveTab] = useState('Tasks');
+  const [activeCategory, setActiveCategory] = useState('ALL');
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const firstLoad = useRef(true);
+
+  const { data: taskStats, isLoading, dataUpdatedAt } = useQuery<TaskStat>({
+    queryKey: ['task-dashboard-stats', activeCategory],
+    queryFn: () =>
+      api.get('/dashboard/task-stats', { params: { category: activeCategory } }).then((r) => r.data.data),
+    refetchInterval: 60000,
   });
 
-  const { data: dueDates } = useQuery({
-    queryKey: ['dashboard-due-dates'],
-    queryFn: () => api.get('/dashboard/due-dates').then((r) => r.data.data),
-  });
+  useEffect(() => {
+    if (dataUpdatedAt && !firstLoad.current) setLastRefreshed(new Date(dataUpdatedAt));
+    if (dataUpdatedAt) firstLoad.current = false;
+  }, [dataUpdatedAt]);
 
-  const { data: activity } = useQuery({
-    queryKey: ['dashboard-activity'],
-    queryFn: () => api.get('/dashboard/activity').then((r) => r.data.data),
-  });
+  const dueCards: StatCardProps[] = [
+    {
+      label: 'Due Today',
+      value: taskStats?.dueToday ?? 0,
+      bgClass: 'bg-yellow-50',
+      borderClass: 'border-yellow-200',
+      labelClass: 'text-yellow-700',
+      numClass: 'text-yellow-800',
+    },
+    {
+      label: 'Due Tomorrow',
+      value: taskStats?.dueTomorrow ?? 0,
+      bgClass: 'bg-green-50',
+      borderClass: 'border-green-200',
+      labelClass: 'text-green-700',
+      numClass: 'text-green-800',
+    },
+    {
+      label: 'Due in 7 Days',
+      value: taskStats?.dueIn7Days ?? 0,
+      bgClass: 'bg-sky-50',
+      borderClass: 'border-sky-200',
+      labelClass: 'text-sky-600',
+      numClass: 'text-blue-700',
+    },
+    {
+      label: 'Due After 7 Days',
+      value: taskStats?.dueAfter7Days ?? 0,
+      bgClass: 'bg-sky-50',
+      borderClass: 'border-sky-200',
+      labelClass: 'text-sky-600',
+      numClass: 'text-blue-700',
+    },
+    {
+      label: 'Due in 30 Days',
+      value: taskStats?.dueIn30Days ?? 0,
+      bgClass: 'bg-sky-50',
+      borderClass: 'border-sky-200',
+      labelClass: 'text-sky-600',
+      numClass: 'text-blue-700',
+    },
+  ];
 
-  const { data: filingAnalytics } = useQuery({
-    queryKey: ['filing-analytics'],
-    queryFn: () => api.get('/dashboard/filing-analytics').then((r) => r.data.data),
-  });
-
-  const { data: revenue } = useQuery({
-    queryKey: ['revenue-summary'],
-    queryFn: () => api.get('/billing/revenue').then((r) => r.data.data),
-  });
-
-  const filingStatusData = filingAnalytics
-    ? Object.entries(filingAnalytics.byStatus).map(([name, value]) => ({ name, value }))
-    : [];
+  const overdueCards: StatCardProps[] = [
+    {
+      label: 'Overdue After 30 Days',
+      value: taskStats?.overdueAfter30Days ?? 0,
+      bgClass: 'bg-indigo-50',
+      borderClass: 'border-indigo-200',
+      labelClass: 'text-indigo-500',
+      numClass: 'text-indigo-700',
+    },
+    {
+      label: 'Overdue Up to 7 Days',
+      value: taskStats?.overdueUpTo7Days ?? 0,
+      bgClass: 'bg-rose-50',
+      borderClass: 'border-rose-200',
+      labelClass: 'text-rose-500',
+      numClass: 'text-rose-600',
+    },
+    {
+      label: 'Overdue More Than 7 Days',
+      value: taskStats?.overdueMoreThan7Days ?? 0,
+      bgClass: 'bg-red-100',
+      borderClass: 'border-red-300',
+      labelClass: 'text-red-500',
+      numClass: 'text-red-700',
+    },
+    {
+      label: 'Total Due',
+      value: taskStats?.totalOverdue ?? 0,
+      bgClass: 'bg-violet-50',
+      borderClass: 'border-violet-200',
+      labelClass: 'text-violet-500',
+      numClass: 'text-violet-800',
+    },
+  ];
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
+    <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-sky-100 via-blue-50 to-cyan-50 p-4 animate-fade-in">
+      <div className="rounded-3xl overflow-hidden shadow-lg bg-white">
+        {/* Purple Header */}
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <span className="text-xs text-white/80 bg-white/10 rounded-full px-3 py-1 border border-white/20">
+            Last Refreshed: {format(lastRefreshed, 'dd MMM yyyy, hh:mm:ss aa')}
+          </span>
         </div>
-      </div>
 
-      {/* KPI Grid */}
-      {statsLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-          <StatCard title="Total Clients" value={stats?.clients?.total || 0} subtitle={`${stats?.clients?.active || 0} active`} icon={Users} color="blue" trend={{ value: 8, label: 'this month' }} />
-          <StatCard title="Pending Filings" value={stats?.filings?.pending || 0} subtitle={`${stats?.filings?.overdue || 0} overdue`} icon={FileCheck} color="yellow" />
-          <StatCard title="Open Notices" value={stats?.notices?.total || 0} subtitle={`${stats?.notices?.gst || 0} GST · ${stats?.notices?.incomeTax || 0} IT`} icon={AlertCircle} color="red" />
-          <StatCard title="Open Tasks" value={stats?.tasks?.open || 0} subtitle={`${stats?.tasks?.overdue || 0} overdue`} icon={CheckSquare} color="purple" />
-          <StatCard title="Monthly Revenue" value={formatCurrency(stats?.billing?.monthlyRevenue || 0)} subtitle="Current month" icon={TrendingUp} color="green" trend={{ value: 12, label: 'vs last month' }} />
-          <StatCard title="Outstanding Fees" value={formatCurrency(stats?.billing?.outstanding || 0)} subtitle="Unpaid invoices" icon={Receipt} color="red" />
-          <StatCard title="Automation" value={`${stats?.automation?.running || 0} running`} subtitle={`${stats?.automation?.failed || 0} failed`} icon={Zap} color="blue" />
-          <StatCard title="Compliance Rate" value="92%" subtitle="Filings on time" icon={Shield} color="green" trend={{ value: 4, label: 'vs last month' }} />
-        </div>
-      )}
+        <div className="p-5 space-y-5">
+          {/* Tabs */}
+          <div className="flex gap-1 border-b border-gray-200">
+            {TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  'px-5 py-2.5 text-sm font-medium transition-colors',
+                  activeTab === tab
+                    ? 'text-indigo-600 border-b-2 border-indigo-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Revenue chart */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Revenue Overview</CardTitle>
-            <CardDescription>Billed vs collected — current year</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={revenue?.monthly || []}>
-                <defs>
-                  <linearGradient id="gradBilled" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradCollected" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="month" tickFormatter={(m) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]} tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                <Legend />
-                <Area type="monotone" dataKey="billed" stroke="#3b82f6" fill="url(#gradBilled)" name="Billed" strokeWidth={2} />
-                <Area type="monotone" dataKey="collected" stroke="#10b981" fill="url(#gradCollected)" name="Collected" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Filing status pie */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Filing Status</CardTitle>
-            <CardDescription>Current year distribution</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center">
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie data={filingStatusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
-                  {filingStatusData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-2 w-full">
-              {filingStatusData.map((entry, i) => (
-                <div key={entry.name} className="flex items-center gap-1.5 text-xs">
-                  <div className="h-2.5 w-2.5 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <span className="text-muted-foreground">{entry.name}</span>
-                  <span className="ml-auto font-medium">{String(entry.value)}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming due dates */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-orange-500" />
-              Upcoming Due Dates
-            </CardTitle>
-            <CardDescription>Next 30 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!dueDates?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No upcoming filings</p>
-            ) : (
-              <div className="space-y-2">
-                {dueDates.slice(0, 8).map((d: Record<string, unknown>) => (
-                  <div key={String(d.id)} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <div>
-                      <p className="text-sm font-medium">{String((d.client as Record<string, unknown>)?.name)}</p>
-                      <p className="text-xs text-muted-foreground">{String(d.complianceType)} · {String(d.period)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-medium text-orange-600">{formatDate(String(d.dueDate))}</p>
-                      <Badge variant="outline" className={cn('text-[10px]', STATUS_COLORS[String(d.status)])}>
-                        {String(d.status)}
-                      </Badge>
-                    </div>
-                  </div>
+          {activeTab === 'Tasks' && (
+            <>
+              {/* Category Filter */}
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setActiveCategory(cat.value)}
+                    className={cn(
+                      'px-4 py-1.5 rounded-full text-sm font-medium transition-colors border',
+                      activeCategory === cat.value
+                        ? 'bg-indigo-700 text-white border-indigo-700'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400 hover:text-indigo-600'
+                    )}
+                  >
+                    {cat.label}
+                  </button>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Activity timeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Latest actions across the platform</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!activity?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No recent activity</p>
-            ) : (
-              <div className="space-y-3">
-                {activity.slice(0, 8).map((log: Record<string, unknown>) => {
-                  const user = log.user as Record<string, unknown> | null;
-                  const client = log.client as Record<string, unknown> | null;
-                  return (
-                    <div key={String(log.id)} className="flex items-start gap-3">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
-                        {user ? `${String(user.firstName)[0]}${String(user.lastName)[0]}` : '?'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs">
-                          <span className="font-medium">
-                            {user ? `${user.firstName} ${user.lastName}` : 'System'}
-                          </span>{' '}
-                          <span className="text-muted-foreground">{String(log.description)}</span>
-                          {client && <span className="font-medium"> · {String(client.name)}</span>}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">{formatDate(String(log.createdAt), 'dd MMM, HH:mm')}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Due Date Cards */}
+              {isLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {dueCards.map((card) => <StatCard key={card.label} {...card} />)}
+                </div>
+              )}
+
+              {/* Overdue Cards */}
+              {isLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {overdueCards.map((card) => <StatCard key={card.label} {...card} />)}
+                </div>
+              )}
+
+              {/* Task Summary by Status */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-base font-semibold text-gray-800">All Task Summary - Statuswise</h2>
+                  <button className="flex items-center gap-1.5 text-sm text-indigo-600 border border-indigo-300 rounded-lg px-3 py-1.5 hover:bg-indigo-50 transition-colors">
+                    Select task filter <Filter className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 uppercase text-xs tracking-wider">Status</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-500 uppercase text-xs tracking-wider">Total Tasks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isLoading
+                      ? Array.from({ length: 5 }).map((_, i) => (
+                          <tr key={i} className="border-b border-gray-100">
+                            <td className="py-2.5 px-3"><Skeleton className="h-4 w-24" /></td>
+                            <td className="py-2.5 px-3 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                          </tr>
+                        ))
+                      : taskStats?.tasksByStatus?.length
+                        ? taskStats.tasksByStatus.map((row) => (
+                            <tr key={row.status} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                              <td className={cn('py-2.5 px-3 font-medium', STATUS_ROW_COLORS[row.status] ?? 'text-gray-700')}>
+                                {STATUS_LABELS[row.status] ?? row.status}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold text-gray-900">{row.count}</td>
+                            </tr>
+                          ))
+                        : (
+                          <tr>
+                            <td colSpan={2} className="py-8 text-center text-gray-400 text-sm">No tasks found</td>
+                          </tr>
+                        )
+                    }
+                  </tbody>
+                </table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </>
+          )}
+
+          {activeTab === 'Todo' && (
+            <div className="py-16 text-center text-gray-400">
+              <p className="text-lg font-medium">Todo</p>
+              <p className="text-sm mt-1">Coming soon</p>
+            </div>
+          )}
+
+          {activeTab === 'Live Time Tracking' && (
+            <div className="py-16 text-center text-gray-400">
+              <p className="text-lg font-medium">Live Time Tracking</p>
+              <p className="text-sm mt-1">Coming soon</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
