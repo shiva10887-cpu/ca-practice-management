@@ -16,7 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
 const schema = z.object({
-  name: z.string().min(2, 'Name required'),
+  legalName: z.string().min(2, 'Legal name required'),
+  tradeName: z.string().optional(),
   pan: z.string().regex(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/, 'Invalid PAN').optional().or(z.literal('')),
   gstin: z.string().regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Invalid GSTIN').optional().or(z.literal('')),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
@@ -46,7 +47,7 @@ export function ClientDialog({ open, onClose, onSuccess, initialData }: Props) {
 
   const { register, handleSubmit, setValue, watch, formState: { errors }, reset } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: initialData || { businessType: 'INDIVIDUAL' },
+    defaultValues: initialData || { legalName: '', tradeName: '', businessType: 'INDIVIDUAL' },
   });
 
   const mutation = useMutation({
@@ -83,10 +84,14 @@ export function ClientDialog({ open, onClose, onSuccess, initialData }: Props) {
 
             <TabsContent value="basic" className="mt-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="name">Client Name *</Label>
-                  <Input id="name" {...register('name')} />
-                  {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+                <div className="space-y-1.5">
+                  <Label htmlFor="legalName">Legal Name *</Label>
+                  <Input id="legalName" {...register('legalName')} />
+                  {errors.legalName && <p className="text-xs text-destructive">{errors.legalName.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="tradeName">Trade Name</Label>
+                  <Input id="tradeName" {...register('tradeName')} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Business Type *</Label>

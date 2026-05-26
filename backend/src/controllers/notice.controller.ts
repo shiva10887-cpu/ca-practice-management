@@ -39,7 +39,7 @@ export async function listNotices(req: AuthRequest, res: Response) {
       take: Number(limit),
       orderBy: [{ riskLevel: 'desc' }, { responseDeadline: 'asc' }],
       include: {
-        client: { select: { id: true, name: true } },
+        client: { select: { id: true, legalName: true } },
         _count: { select: { replies: true } },
       },
     }),
@@ -53,7 +53,7 @@ export async function getNotice(req: AuthRequest, res: Response) {
   const notice = await prisma.notice.findUnique({
     where: { id: req.params.id },
     include: {
-      client: { select: { id: true, name: true, pan: true, gstin: true } },
+      client: { select: { id: true, legalName: true, pan: true, gstin: true } },
       replies: { orderBy: { createdAt: 'desc' } },
       hearings: { orderBy: { hearingDate: 'asc' } },
     },
@@ -109,11 +109,11 @@ export async function summarizeNoticeAi(req: AuthRequest, res: Response) {
 export async function draftReplyAi(req: AuthRequest, res: Response) {
   const notice = await prisma.notice.findUnique({
     where: { id: req.params.id },
-    include: { client: { select: { name: true, pan: true, gstin: true } } },
+    include: { client: { select: { legalName: true, pan: true, gstin: true } } },
   });
   if (!notice) return R.notFound(res, 'Notice not found');
 
-  const clientDetails = `Name: ${notice.client?.name}, PAN: ${notice.client?.pan}, GSTIN: ${notice.client?.gstin}`;
+  const clientDetails = `Name: ${notice.client?.legalName}, PAN: ${notice.client?.pan}, GSTIN: ${notice.client?.gstin}`;
   const draft = await draftNoticeReply(notice.description || notice.subject, clientDetails);
 
   return R.ok(res, { draft });

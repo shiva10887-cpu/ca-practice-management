@@ -10,6 +10,18 @@ const PORT = process.env.PORT || 4000;
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+async function checkRedisVersion(): Promise<boolean> {
+  try {
+    const info = await redis.info('server');
+    const match = info.match(/redis_version:(\S+)/);
+    if (!match) return false;
+    const major = parseInt(match[1].split('.')[0], 10);
+    return major >= 5;
+  } catch {
+    return false;
+  }
+}
+
 async function bootstrap() {
   try {
     await prisma.$connect();
@@ -23,14 +35,22 @@ async function bootstrap() {
     } catch (err) {
       if (isDev) {
         logger.warn('Redis unavailable — queues and notifications disabled (dev mode)');
+        redis.disconnect();
       } else {
         throw err;
       }
     }
 
     if (redisAvailable) {
-      await initQueues();
-      logger.info('BullMQ queues initialized');
+      const versionOk = await checkRedisVersion();
+      if (versionOk) {
+        await initQueues();
+        logger.info('BullMQ queues initialized');
+      } else if (isDev) {
+        redisAvailable = false;
+      } else {
+        throw new Error('Redis version too old for BullMQ — requires >= 5.0.0');
+      }
     }
 
     const server = createServer(app);

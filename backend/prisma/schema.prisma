@@ -202,6 +202,12 @@ enum Portal {
   MCA
   EPFO
   ESI
+  EWAY_BILL
+  E_INVOICE
+  E_INVOICE_API
+  OTHER
+  PT
+  TAN_INCOME_TAX
 }
 
 enum NotificationChannel {
@@ -320,7 +326,8 @@ model Client {
   organisationId   String
   organisation     Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   clientCode       String?         @unique
-  name             String
+  legalName        String
+  tradeName        String?
   pan              String?
   gstin            String?
   tan              String?

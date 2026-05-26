@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { cn, STATUS_COLORS, formatDate, getInitials } from '@/lib/utils';
-import { Plus, Search, Upload, Download, Filter, MoreHorizontal, Eye, Edit, Trash2, Building2 } from 'lucide-react';
+import { Plus, Search, Upload, Download, Filter, MoreHorizontal, Eye, Edit, Trash2, Building2, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,9 @@ import { Card } from '@/components/ui/card';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -23,7 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 interface Client {
   id: string;
   clientCode: string;
-  name: string;
+  legalName: string;
+  tradeName?: string;
   pan?: string;
   gstin?: string;
   businessType: string;
@@ -45,6 +49,7 @@ export default function ClientsPage() {
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['clients', page, search, status],
@@ -57,7 +62,12 @@ export default function ClientsPage() {
     mutationFn: (id: string) => api.delete(`/clients/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients'] });
-      toast({ title: 'Client archived' });
+      setClientToDelete(null);
+      toast({ title: 'Client deleted successfully' });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || 'Failed to delete client';
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
     },
   });
 
@@ -74,10 +84,20 @@ export default function ClientsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => api.get('/clients/template', { responseType: 'blob' }).then(r => {
-            const url = window.URL.createObjectURL(r.data);
-            const a = document.createElement('a'); a.href = url; a.download = 'client_template.xlsx'; a.click();
-          })}>
+          <Button variant="outline" size="sm" onClick={() =>
+            api.get('/clients/template', { responseType: 'blob' })
+              .then(r => {
+                const url = window.URL.createObjectURL(r.data);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'client_template.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+              })
+              .catch(() => toast({ title: 'Failed to download template', variant: 'destructive' }))
+          }>
             <Download className="h-4 w-4 mr-1.5" /> Template
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
@@ -122,7 +142,7 @@ export default function ClientsPage() {
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
-                {['Client', 'PAN / GSTIN', 'Type', 'Status', 'Manager', 'Tasks', 'Added'].map((h) => (
+                {['Legal Name', 'Trade Name', 'PAN / GSTIN', 'Type', 'Status', 'Manager', 'Tasks', 'Added'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     {h}
                   </th>
@@ -134,7 +154,7 @@ export default function ClientsPage() {
               {isLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i}>
-                      {Array.from({ length: 8 }).map((__, j) => (
+                      {Array.from({ length: 9 }).map((__, j) => (
                         <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
                       ))}
                     </tr>
@@ -144,13 +164,16 @@ export default function ClientsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary text-xs font-bold">
-                            {getInitials(client.name)}
+                            {getInitials(client.legalName)}
                           </div>
                           <div>
-                            <p className="font-medium">{client.name}</p>
+                            <p className="font-medium">{client.legalName}</p>
                             <p className="text-xs text-muted-foreground">{client.clientCode}</p>
                           </div>
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">
+                        {client.tradeName || '—'}
                       </td>
                       <td className="px-4 py-3">
                         <div>
@@ -189,11 +212,14 @@ export default function ClientsPage() {
                             <DropdownMenuItem onClick={() => router.push(`/clients/${client.id}?edit=true`)}>
                               <Edit className="h-4 w-4 mr-2" /> Edit
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => router.push(`/clients/${client.id}?tab=logins`)}>
+                              <KeyRound className="h-4 w-4 mr-2" /> Manage Logins
+                            </DropdownMenuItem>
                             <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => deleteMutation.mutate(client.id)}
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setClientToDelete(client)}
                             >
-                              <Trash2 className="h-4 w-4 mr-2" /> Archive
+                              <Trash2 className="h-4 w-4 mr-2" /> Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -220,6 +246,30 @@ export default function ClientsPage() {
 
       <ClientDialog open={showCreate} onClose={() => setShowCreate(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['clients'] })} />
       <ImportDialog open={showImport} onClose={() => setShowImport(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['clients'] })} />
+
+      <Dialog open={!!clientToDelete} onOpenChange={(open) => { if (!open) setClientToDelete(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Client</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-semibold">{clientToDelete?.legalName}</span>?
+              This will archive the client and remove them from active lists.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setClientToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => clientToDelete && deleteMutation.mutate(clientToDelete.id)}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

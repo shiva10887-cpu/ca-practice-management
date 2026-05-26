@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import * as R from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { generateClientCode, isValidGSTIN, isValidPAN } from '../utils/validators';
+import { encrypt } from '../services/encryption.service';
 import * as XLSX from 'xlsx';
 
 export async function listClients(req: AuthRequest, res: Response) {
@@ -20,7 +21,8 @@ export async function listClients(req: AuthRequest, res: Response) {
     ...(assignedManagerId && { assignedManagerId }),
     ...(search && {
       OR: [
-        { name: { contains: search, mode: 'insensitive' } },
+        { legalName: { contains: search, mode: 'insensitive' } },
+        { tradeName: { contains: search, mode: 'insensitive' } },
         { pan: { contains: search, mode: 'insensitive' } },
         { gstin: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
@@ -124,12 +126,31 @@ export async function updateClient(req: AuthRequest, res: Response) {
 }
 
 export async function deleteClient(req: AuthRequest, res: Response) {
+  const id = req.params.id;
+
   const client = await prisma.client.findFirst({
-    where: { id: req.params.id, organisationId: req.user!.orgId },
+    where: { id, organisationId: req.user!.orgId },
   });
   if (!client) return R.notFound(res, 'Client not found');
 
-  await prisma.client.update({ where: { id: req.params.id }, data: { isActive: false, status: 'ARCHIVED' } });
+  await prisma.$transaction(async (tx) => {
+    // Nullify optional FK references that lack cascade
+    await tx.task.updateMany({ where: { clientId: id }, data: { clientId: null } });
+    await tx.activityLog.updateMany({ where: { clientId: id }, data: { clientId: null } });
+    await tx.automationJob.updateMany({ where: { clientId: id }, data: { clientId: null } });
+
+    // Delete payments before invoices (no cascade on Payment → Invoice)
+    const invoiceIds = (await tx.invoice.findMany({ where: { clientId: id }, select: { id: true } }))
+      .map((inv) => inv.id);
+    if (invoiceIds.length) {
+      await tx.payment.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
+      await tx.invoice.deleteMany({ where: { clientId: id } });
+    }
+
+    // Delete the client — cascades: contacts, complianceRecords, filings, notices, documents, credentials
+    await tx.client.delete({ where: { id } });
+  });
+
   return R.noContent(res);
 }
 
@@ -155,34 +176,88 @@ export async function importClients(req: AuthRequest, res: Response) {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
+      const pan = (row['PAN'] || row['pan'] || '').toString().toUpperCase().trim() || undefined;
       const data = {
-        name: row['Client Name'] || row['name'],
-        pan: (row['PAN'] || row['pan'])?.toUpperCase(),
-        gstin: (row['GSTIN'] || row['gstin'])?.toUpperCase(),
-        email: row['Email'] || row['email'],
-        phone: row['Phone'] || row['phone'],
-        businessType: row['Business Type'] || row['businessType'] || 'INDIVIDUAL',
-        state: row['State'] || row['state'],
-        address: row['Address'] || row['address'],
+        legalName: (row['Legal Name'] || row['legalName'] || '').toString().trim(),
+        tradeName: (row['Trade Name'] || row['tradeName'] || '').toString().trim() || undefined,
+        pan,
+        gstin: (row['GSTIN'] || row['gstin'] || '').toString().toUpperCase().trim() || undefined,
+        tan: (row['TAN'] || row['tan'] || '').toString().toUpperCase().trim() || undefined,
+        email: (row['Email'] || row['email'] || '').toString().trim() || undefined,
+        phone: (row['Phone'] || row['phone'] || '').toString().trim() || undefined,
+        businessType: (row['Business Type'] || row['businessType'] || 'INDIVIDUAL').toString().trim(),
+        constitutionType: (row['Constitution Type'] || row['constitutionType'] || 'INDIVIDUAL').toString().trim(),
+        address: (row['Address'] || row['address'] || '').toString().trim() || undefined,
+        city: (row['City'] || row['city'] || '').toString().trim() || undefined,
+        state: (row['State'] || row['state'] || '').toString().trim() || undefined,
+        pincode: (row['Pincode'] || row['pincode'] || '').toString().trim() || undefined,
+        notes: (row['Notes'] || row['notes'] || '').toString().trim() || undefined,
       };
 
-      if (!data.name) {
-        results.errors.push({ row: i + 2, error: 'Client name is required' });
+      const gstUserId = (row['GST USER ID'] || row['GST User ID'] || '').toString().trim();
+      const gstPassword = (row['GST Password'] || row['GST password'] || '').toString().trim();
+      const itPassword = (row['Income tax Login password'] || row['IT Password'] || '').toString().trim();
+
+      if (!data.legalName) {
+        results.errors.push({ row: i + 2, error: 'Legal Name is required' });
         continue;
       }
 
-      const existing = data.pan
-        ? await prisma.client.findFirst({ where: { organisationId: req.user!.orgId, pan: data.pan } })
+      const existing = pan
+        ? await prisma.client.findFirst({ where: { organisationId: req.user!.orgId, pan } })
         : null;
 
+      let clientId: string;
       if (existing) {
         await prisma.client.update({ where: { id: existing.id }, data });
+        clientId = existing.id;
         results.updated++;
       } else {
-        await prisma.client.create({
+        const created = await prisma.client.create({
           data: { ...data, organisationId: req.user!.orgId, clientCode: generateClientCode() },
         });
+        clientId = created.id;
         results.created++;
+      }
+
+      // Upsert GST portal credential
+      if (gstUserId && gstPassword) {
+        const existingGst = await prisma.credential.findFirst({ where: { clientId, portal: 'GST_PORTAL' } });
+        if (existingGst) {
+          await prisma.credential.update({
+            where: { id: existingGst.id },
+            data: { usernameEncrypted: encrypt(gstUserId), passwordEncrypted: encrypt(gstPassword) },
+          });
+        } else {
+          await prisma.credential.create({
+            data: {
+              clientId, portal: 'GST_PORTAL',
+              usernameEncrypted: encrypt(gstUserId),
+              passwordEncrypted: encrypt(gstPassword),
+              createdById: req.user!.userId,
+            },
+          });
+        }
+      }
+
+      // Upsert Income Tax credential (username = PAN)
+      if (pan && itPassword) {
+        const existingIt = await prisma.credential.findFirst({ where: { clientId, portal: 'INCOME_TAX' } });
+        if (existingIt) {
+          await prisma.credential.update({
+            where: { id: existingIt.id },
+            data: { usernameEncrypted: encrypt(pan), passwordEncrypted: encrypt(itPassword) },
+          });
+        } else {
+          await prisma.credential.create({
+            data: {
+              clientId, portal: 'INCOME_TAX',
+              usernameEncrypted: encrypt(pan),
+              passwordEncrypted: encrypt(itPassword),
+              createdById: req.user!.userId,
+            },
+          });
+        }
       }
     } catch (err) {
       results.errors.push({ row: i + 2, error: String(err) });
@@ -193,21 +268,26 @@ export async function importClients(req: AuthRequest, res: Response) {
 }
 
 export async function downloadImportTemplate(_req: AuthRequest, res: Response) {
-  const headers = [
-    'Client Name', 'PAN', 'GSTIN', 'TAN', 'Business Type', 'Constitution Type',
-    'Email', 'Phone', 'Address', 'City', 'State', 'Pincode', 'Notes',
-  ];
+  try {
+    const headers = [
+      'Legal Name', 'Trade Name', 'PAN', 'GSTIN', 'TAN', 'Business Type', 'Constitution Type',
+      'Email', 'Phone', 'Address', 'City', 'State', 'Pincode', 'Notes',
+      'GST USER ID', 'GST Password', 'Income tax Login password',
+    ];
 
-  const ws = XLSX.utils.aoa_to_sheet([
-    headers,
-    ['Ramesh Kumar', 'AABCP1234C', '29AABCP1234C1Z5', '', 'INDIVIDUAL', 'INDIVIDUAL', 'ramesh@example.com', '9876543210', '123 Main St', 'Bengaluru', 'Karnataka', '560001', ''],
-  ]);
+    const ws = XLSX.utils.aoa_to_sheet([
+      headers,
+      ['Ramesh Kumar', 'Ramesh Enterprises', 'AABCP1234C', '29AABCP1234C1Z5', 'DELR12345C', 'INDIVIDUAL', 'INDIVIDUAL', 'ramesh@example.com', '9876543210', '123 Main St', 'Bengaluru', 'Karnataka', '560001', '', 'ramesh_gst', 'gst@pass1', 'it@pass1'],
+    ]);
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
 
-  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename="client_import_template.xlsx"');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buffer);
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="client_import_template.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to generate template' });
+  }
 }

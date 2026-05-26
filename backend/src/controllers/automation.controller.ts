@@ -27,7 +27,7 @@ export async function listJobs(req: AuthRequest, res: Response) {
       skip,
       take: Number(limit),
       orderBy: { createdAt: 'desc' },
-      include: { client: { select: { id: true, name: true } } },
+      include: { client: { select: { id: true, legalName: true } } },
     }),
     prisma.automationJob.count({ where }),
   ]);
@@ -76,7 +76,7 @@ export async function triggerJob(req: AuthRequest, res: Response) {
 export async function getJobStatus(req: AuthRequest, res: Response) {
   const job = await prisma.automationJob.findUnique({
     where: { id: req.params.id },
-    include: { client: { select: { id: true, name: true } } },
+    include: { client: { select: { id: true, legalName: true } } },
   });
 
   if (!job) return R.notFound(res, 'Job not found');

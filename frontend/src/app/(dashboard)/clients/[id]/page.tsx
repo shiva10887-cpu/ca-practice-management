@@ -1,16 +1,19 @@
 'use client';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { formatDate, cn, STATUS_COLORS } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Building2, Mail, Phone, MapPin, FileCheck, AlertCircle, CheckSquare, FolderOpen, Receipt } from 'lucide-react';
+import { Building2, Mail, Phone, MapPin, FileCheck, AlertCircle, CheckSquare, FolderOpen, Receipt, KeyRound } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CredentialsTab } from '@/components/clients/CredentialsTab';
 
 export default function ClientProfilePage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const defaultTab = searchParams.get('tab') ?? 'overview';
 
   const { data: client, isLoading } = useQuery({
     queryKey: ['client', id],
@@ -43,14 +46,19 @@ export default function ClientProfilePage() {
       {/* Header */}
       <div className="flex items-start gap-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10 text-primary text-xl font-bold">
-          {client.name[0]}
+          {client.legalName[0]}
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{client.name}</h1>
+            <h1 className="text-2xl font-bold">{client.legalName}</h1>
             <span className={cn('status-badge', STATUS_COLORS[client.status])}>{client.status}</span>
           </div>
-          <p className="text-sm text-muted-foreground">{client.clientCode} · {client.businessType}</p>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>{client.clientCode} · {client.businessType}</span>
+            {client.tradeName && (
+              <span className="text-xs bg-muted px-2 py-0.5 rounded-full">Trade: {client.tradeName}</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -71,9 +79,12 @@ export default function ClientProfilePage() {
         ))}
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="logins">
+            <KeyRound className="h-3.5 w-3.5 mr-1.5" />Logins
+          </TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="notices">Notices</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -127,6 +138,10 @@ export default function ClientProfilePage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="logins" className="mt-4">
+          <CredentialsTab clientId={id} />
         </TabsContent>
 
         <TabsContent value="compliance" className="mt-4">

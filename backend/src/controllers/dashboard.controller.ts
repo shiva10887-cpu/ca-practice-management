@@ -81,7 +81,7 @@ export async function getUpcomingDueDates(req: AuthRequest, res: Response) {
     },
     orderBy: { dueDate: 'asc' },
     take: 15,
-    include: { client: { select: { id: true, name: true } } },
+    include: { client: { select: { id: true, legalName: true } } },
   });
 
   return R.ok(res, upcoming);
@@ -96,7 +96,7 @@ export async function getActivityTimeline(req: AuthRequest, res: Response) {
     take: 20,
     include: {
       user: { select: { firstName: true, lastName: true, avatar: true } },
-      client: { select: { name: true } },
+      client: { select: { legalName: true } },
     },
   });
 

@@ -48,7 +48,7 @@ export async function listCompliance(req: AuthRequest, res: Response) {
       skip,
       take: Number(limit),
       orderBy: { dueDate: 'asc' },
-      include: { client: { select: { id: true, name: true, gstin: true, pan: true } } },
+      include: { client: { select: { id: true, legalName: true, gstin: true, pan: true } } },
     }),
     prisma.complianceRecord.count({ where }),
   ]);
@@ -116,7 +116,7 @@ export async function getDueDates(req: AuthRequest, res: Response) {
       clientId: { in: orgClientIds },
       dueDate: { gte: startDate, lte: endDate },
     },
-    include: { client: { select: { id: true, name: true } } },
+    include: { client: { select: { id: true, legalName: true } } },
     orderBy: { dueDate: 'asc' },
   });
 

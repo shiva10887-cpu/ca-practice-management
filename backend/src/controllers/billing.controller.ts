@@ -28,7 +28,7 @@ export async function listInvoices(req: AuthRequest, res: Response) {
       take: Number(limit),
       orderBy: { issueDate: 'desc' },
       include: {
-        client: { select: { id: true, name: true } },
+        client: { select: { id: true, legalName: true } },
         payments: { select: { amount: true, paymentDate: true } },
         _count: { select: { lineItems: true } },
       },
@@ -83,7 +83,7 @@ export async function createInvoice(req: AuthRequest, res: Response) {
         })),
       },
     },
-    include: { lineItems: true, client: { select: { id: true, name: true } } },
+    include: { lineItems: true, client: { select: { id: true, legalName: true } } },
   });
 
   return R.created(res, inv);

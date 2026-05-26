@@ -34,7 +34,7 @@ export async function listTasks(req: AuthRequest, res: Response) {
       take: Number(limit),
       orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }],
       include: {
-        client: { select: { id: true, name: true } },
+        client: { select: { id: true, legalName: true } },
         assignee: { select: { id: true, firstName: true, lastName: true, avatar: true } },
         checklist: true,
         _count: { select: { subTasks: true, comments: true } },
@@ -50,7 +50,7 @@ export async function getTask(req: AuthRequest, res: Response) {
   const task = await prisma.task.findFirst({
     where: { id: req.params.id, organisationId: req.user!.orgId },
     include: {
-      client: { select: { id: true, name: true } },
+      client: { select: { id: true, legalName: true } },
       assignee: { select: { id: true, firstName: true, lastName: true, avatar: true } },
       creator: { select: { id: true, firstName: true, lastName: true } },
       checklist: { orderBy: { order: 'asc' } },
@@ -77,7 +77,7 @@ export async function createTask(req: AuthRequest, res: Response) {
     },
     include: {
       assignee: { select: { id: true, firstName: true, lastName: true } },
-      client: { select: { id: true, name: true } },
+      client: { select: { id: true, legalName: true } },
     },
   });
 
@@ -151,7 +151,7 @@ export async function getKanbanBoard(req: AuthRequest, res: Response) {
     where,
     orderBy: { updatedAt: 'desc' },
     include: {
-      client: { select: { id: true, name: true } },
+      client: { select: { id: true, legalName: true } },
       assignee: { select: { id: true, firstName: true, lastName: true, avatar: true } },
       checklist: true,
     },

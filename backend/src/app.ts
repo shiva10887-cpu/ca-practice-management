@@ -10,6 +10,7 @@ import { requestLogger } from './middleware/requestLogger';
 import routes from './routes';
 
 const app = express();
+const isDev = process.env.NODE_ENV !== 'production';
 
 // ─── Security ────────────────────────────────────────────────────────────────
 app.use(helmet({
@@ -17,17 +18,21 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: (origin, cb) => {
-    const allowed = [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-    ];
-    if (!origin || allowed.includes(origin)) return cb(null, true);
-    cb(new Error('CORS: origin not allowed'));
-  },
+  origin: isDev
+    ? true
+    : (origin, cb) => {
+        const allowed = (process.env.FRONTEND_URL || 'http://localhost:3000')
+          .split(',')
+          .map((s) => s.trim());
+        if (!origin || allowed.includes(origin)) return cb(null, true);
+        cb(null, false);
+      },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }));
+
+app.options('*', cors());
 
 app.use(rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,

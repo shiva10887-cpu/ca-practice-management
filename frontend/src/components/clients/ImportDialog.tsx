@@ -103,12 +103,20 @@ export function ImportDialog({ open, onClose, onSuccess }: {
 
               <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
                 <p className="font-semibold text-foreground">Required columns:</p>
-                <p>Client Name, PAN, GSTIN, Email, Phone, Business Type, State</p>
+                <p>Legal Name, Trade Name, PAN, GSTIN, TAN, Business Type, Constitution Type, Email, Phone, Address, City, State, Pincode, Notes, GST USER ID, GST Password, Income tax Login password</p>
                 <p className="text-primary cursor-pointer hover:underline" onClick={() =>
-                  api.get('/clients/template', { responseType: 'blob' }).then((r) => {
-                    const url = window.URL.createObjectURL(r.data);
-                    const a = document.createElement('a'); a.href = url; a.download = 'client_template.xlsx'; a.click();
-                  })
+                  api.get('/clients/template', { responseType: 'blob' })
+                    .then((r) => {
+                      const url = window.URL.createObjectURL(r.data);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'client_template.xlsx';
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(url);
+                    })
+                    .catch(() => toast({ title: 'Failed to download template', variant: 'destructive' }))
                 }>
                   ↓ Download template
                 </p>
