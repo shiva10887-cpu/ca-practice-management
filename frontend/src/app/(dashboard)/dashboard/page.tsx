@@ -18,6 +18,18 @@ const CATEGORIES = [
   { label: 'Other', value: 'OTHER' },
 ];
 
+const CLIENT_SERVICES = [
+  { label: 'All Clients', value: 'ALL' },
+  { label: 'GST',         value: 'GST' },
+  { label: 'Income Tax',  value: 'INCOME_TAX' },
+  { label: 'MCA / ROC',   value: 'MCA' },
+  { label: 'TDS',         value: 'TDS' },
+  { label: 'Audit',       value: 'AUDIT' },
+  { label: 'Accounting',  value: 'ACCOUNTING' },
+  { label: 'Payroll',     value: 'PAYROLL' },
+  { label: 'Other',       value: 'OTHER' },
+];
+
 const TABS = ['Tasks', 'Todo', 'Live Time Tracking'];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -72,13 +84,19 @@ interface TaskStat {
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('Tasks');
   const [activeCategory, setActiveCategory] = useState('ALL');
+  const [activeService, setActiveService] = useState('ALL');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const firstLoad = useRef(true);
 
   const { data: taskStats, isLoading, dataUpdatedAt } = useQuery<TaskStat>({
-    queryKey: ['task-dashboard-stats', activeCategory],
+    queryKey: ['task-dashboard-stats', activeCategory, activeService],
     queryFn: () =>
-      api.get('/dashboard/task-stats', { params: { category: activeCategory } }).then((r) => r.data.data),
+      api.get('/dashboard/task-stats', {
+        params: {
+          category: activeCategory !== 'ALL' ? activeCategory : undefined,
+          clientService: activeService !== 'ALL' ? activeService : undefined,
+        },
+      }).then((r) => r.data.data),
     refetchInterval: 60000,
   });
 
@@ -197,22 +215,48 @@ export default function DashboardPage() {
 
           {activeTab === 'Tasks' && (
             <>
-              {/* Category Filter */}
-              <div className="flex flex-wrap gap-2">
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.value}
-                    onClick={() => setActiveCategory(cat.value)}
-                    className={cn(
-                      'px-4 py-1.5 rounded-full text-sm font-medium transition-colors border',
-                      activeCategory === cat.value
-                        ? 'bg-indigo-700 text-white border-indigo-700'
-                        : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400 hover:text-indigo-600'
-                    )}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+              {/* Task Category Filter */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider w-24 shrink-0">Task Type</span>
+                  <div className="flex flex-wrap gap-2">
+                    {CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.value}
+                        onClick={() => setActiveCategory(cat.value)}
+                        className={cn(
+                          'px-4 py-1.5 rounded-full text-sm font-medium transition-colors border',
+                          activeCategory === cat.value
+                            ? 'bg-indigo-700 text-white border-indigo-700'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400 hover:text-indigo-600'
+                        )}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Client Service Filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider w-24 shrink-0">Service</span>
+                  <div className="flex flex-wrap gap-2">
+                    {CLIENT_SERVICES.map((svc) => (
+                      <button
+                        key={svc.value}
+                        onClick={() => setActiveService(svc.value)}
+                        className={cn(
+                          'px-4 py-1.5 rounded-full text-sm font-medium transition-colors border',
+                          activeService === svc.value
+                            ? 'bg-violet-600 text-white border-violet-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-violet-400 hover:text-violet-600'
+                        )}
+                      >
+                        {svc.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Due Date Cards */}

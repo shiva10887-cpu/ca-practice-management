@@ -106,7 +106,7 @@ export async function getActivityTimeline(req: AuthRequest, res: Response) {
 
 export async function getTaskDashboardStats(req: AuthRequest, res: Response) {
   const orgId = req.user!.orgId;
-  const { category } = req.query as Record<string, string>;
+  const { category, clientService } = req.query as Record<string, string>;
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -117,10 +117,21 @@ export async function getTaskDashboardStats(req: AuthRequest, res: Response) {
   const minus7Days = new Date(todayStart.getTime() - 7 * 86400000);
   const minus30Days = new Date(todayStart.getTime() - 30 * 86400000);
 
+  // When filtering by client service, resolve matching clientIds first
+  let serviceClientIds: string[] | undefined;
+  if (clientService && clientService !== 'ALL') {
+    const matched = await prisma.client.findMany({
+      where: { organisationId: orgId, complianceApplicability: { has: clientService } },
+      select: { id: true },
+    });
+    serviceClientIds = matched.map((c) => c.id);
+  }
+
   const base: Prisma.TaskWhereInput = {
     organisationId: orgId,
     parentTaskId: null,
     ...(category && category !== 'ALL' ? { category: category as TaskCategory } : {}),
+    ...(serviceClientIds !== undefined ? { clientId: { in: serviceClientIds } } : {}),
   };
   const pending: Prisma.TaskWhereInput = { status: { in: ['TODO', 'IN_PROGRESS', 'REVIEW'] } };
 
